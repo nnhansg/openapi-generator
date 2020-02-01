@@ -28,15 +28,79 @@ class Configuration(object):
     Do not edit the class manually.
 
     :param host: Base url
-    :param api_key: Dict to store API key(s)
+    :param api_key: Dict to store API key(s).
+      Each entry in the dict specifies an API key.
+      The dict key is the name of the security scheme in the OAS specification.
+      The dict value is the API key secret.
     :param api_key_prefix: Dict to store API prefix (e.g. Bearer)
+      The dict key is the name of the security scheme in the OAS specification.
+      The dict value is an API key prefix when generating the auth data.
     :param username: Username for HTTP basic authentication
     :param password: Password for HTTP basic authentication
+    :param signing_info: Configuration parameters for HTTP signature.
+        Must be an instance of petstore_api.signing.HttpSigningConfiguration
+
+    :Example:
+
+    Given the following security scheme in the OpenAPI specification:
+      components:
+        securitySchemes:
+          cookieAuth:         # name for the security scheme
+            type: apiKey
+            in: cookie
+            name: JSESSIONID  # cookie name
+
+    You can programmatically set the cookie:
+      conf = petstore_api.Configuration(
+        api_key={'cookieAuth': 'abc123'}
+        api_key_prefix={'cookieAuth': 'JSESSIONID'}
+      )
+    The following cookie will be added to the HTTP request:
+       Cookie: JSESSIONID abc123
+
+    Configure API client with HTTP basic authentication:
+      conf = petstore_api.Configuration(
+          username='the-user',
+          password='the-password',
+      )
+
+    Configure API client with HTTP signature authentication. Use the 'hs2019' signature scheme,
+    sign the HTTP requests with the RSA-SSA-PSS signature algorithm, and set the expiration time
+    of the signature to 5 minutes after the signature has been created.
+    Note you can use the constants defined in the petstore_api.signing module, and you can
+    also specify arbitrary HTTP headers to be included in the HTTP signature, except for the
+    'Authorization' header, which is used to carry the signature.
+
+    One may be tempted to sign all headers by default, but in practice it rarely works.
+    This is beccause explicit proxies, transparent proxies, TLS termination endpoints or
+    load balancers may add/modify/remove headers. Include the HTTP headers that you know
+    are not going to be modified in transit.
+
+      conf = petstore_api.Configuration(
+        signing_info = petstore_api.signing.HttpSigningConfiguration(
+            key_id =                 'my-key-id',
+            private_key_path =       'rsa.pem',
+            signing_scheme =         signing.SCHEME_HS2019,
+            signing_algorithm =      signing.ALGORITHM_RSASSA_PSS,
+            signed_headers =         [signing.HEADER_REQUEST_TARGET,
+                                      signing.HEADER_CREATED,
+                                      signing.HEADER_EXPIRES,
+                                      signing.HEADER_HOST,
+                                      signing.HEADER_DATE,
+                                      signing.HEADER_DIGEST,
+                                      'Content-Type',
+                                      'Content-Length',
+                                      'User-Agent'
+                                     ],
+            signature_max_validity = datetime.timedelta(minutes=5)
+        )
+      )
     """
 
     def __init__(self, host="http://petstore.swagger.io:80/v2",
                  api_key=None, api_key_prefix=None,
-                 username="", password=""):
+                 username=None, password=None,
+                 signing_info=None):
         """Constructor
         """
         self.host = host
@@ -64,6 +128,11 @@ class Configuration(object):
         """
         self.password = password
         """Password for HTTP basic authentication
+        """
+        if signing_info is not None:
+            signing_info.host = host
+        self.signing_info = signing_info
+        """The HTTP signing configuration
         """
         self.access_token = ""
         """access token for OAuth/Bearer
@@ -236,8 +305,14 @@ class Configuration(object):
 
         :return: The token for basic HTTP authentication.
         """
+        username = ""
+        if self.username is not None:
+            username = self.username
+        password = ""
+        if self.password is not None:
+            password = self.password
         return urllib3.util.make_headers(
-            basic_auth=self.username + ':' + self.password
+            basic_auth=username + ':' + password
         ).get('authorization')
 
     def auth_settings(self):
@@ -245,36 +320,36 @@ class Configuration(object):
 
         :return: The Auth Settings information dict.
         """
-        return {
-            'api_key':
-                {
-                    'type': 'api_key',
-                    'in': 'header',
-                    'key': 'api_key',
-                    'value': self.get_api_key_with_prefix('api_key')
-                },
-            'api_key_query':
-                {
-                    'type': 'api_key',
-                    'in': 'query',
-                    'key': 'api_key_query',
-                    'value': self.get_api_key_with_prefix('api_key_query')
-                },
-            'http_basic_test':
-                {
-                    'type': 'basic',
-                    'in': 'header',
-                    'key': 'Authorization',
-                    'value': self.get_basic_auth_token()
-                },
-            'petstore_auth':
-                {
-                    'type': 'oauth2',
-                    'in': 'header',
-                    'key': 'Authorization',
-                    'value': 'Bearer ' + self.access_token
-                },
-        }
+        auth = {}
+        if 'api_key' in self.api_key:
+            auth['api_key'] = {
+                'type': 'api_key',
+                'in': 'header',
+                'key': 'api_key',
+                'value': self.get_api_key_with_prefix('api_key')
+            }
+        if 'api_key_query' in self.api_key:
+            auth['api_key_query'] = {
+                'type': 'api_key',
+                'in': 'query',
+                'key': 'api_key_query',
+                'value': self.get_api_key_with_prefix('api_key_query')
+            }
+        if self.username is not None and self.password is not None:
+            auth['http_basic_test'] = {
+                'type': 'basic',
+                'in': 'header',
+                'key': 'Authorization',
+                'value': self.get_basic_auth_token()
+            }
+        if self.access_token is not None:
+            auth['petstore_auth'] = {
+                'type': 'oauth2',
+                'in': 'header',
+                'key': 'Authorization',
+                'value': 'Bearer ' + self.access_token
+            }
+        return auth
 
     def to_debug_report(self):
         """Gets the essential information for debugging.

@@ -6,7 +6,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,10 +17,9 @@
 
 package org.openapitools.codegen.languages;
 
-import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.media.Schema;
-import io.swagger.v3.parser.util.SchemaTypeUtil;
 import org.openapitools.codegen.*;
+import org.openapitools.codegen.meta.features.DocumentationFeature;
 import org.openapitools.codegen.utils.ModelUtils;
 import org.openapitools.codegen.utils.SemVer;
 import org.slf4j.Logger;
@@ -28,7 +27,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.util.*;
-import java.util.regex.Pattern;
 
 import static org.apache.commons.lang3.StringUtils.capitalize;
 import static org.openapitools.codegen.utils.StringUtils.*;
@@ -71,6 +69,11 @@ public class TypeScriptAngularClientCodegen extends AbstractTypeScriptClientCode
 
     public TypeScriptAngularClientCodegen() {
         super();
+
+        featureSet = getFeatureSet().modify()
+                .includeDocumentationFeatures(DocumentationFeature.Readme)
+                .build();
+
         this.outputFolder = "generated-code/typescript-angular";
 
         supportsMultipleInheritance = true;
@@ -157,7 +160,6 @@ public class TypeScriptAngularClientCodegen extends AbstractTypeScriptClientCode
             setStringEnums(Boolean.valueOf(additionalProperties.get(STRING_ENUMS).toString()));
             additionalProperties.put("stringEnums", getStringEnums());
             if (getStringEnums()) {
-                enumSuffix = "";
                 classEnumSeparator = "";
             }
         }
@@ -225,6 +227,23 @@ public class TypeScriptAngularClientCodegen extends AbstractTypeScriptClientCode
         if (additionalProperties.containsKey(FILE_NAMING)) {
             this.setFileNaming(additionalProperties.get(FILE_NAMING).toString());
         }
+
+        if (isEnumSuffixV4Compat) {
+            applyEnumSuffixV4CompatMode();
+        }
+    }
+
+    private void applyEnumSuffixV4CompatMode() {
+        String fullModelSuffix = modelSuffix + modelNameSuffix;
+        if (stringEnums) {
+            // with stringEnums, legacy code would discard "Enum" suffix altogether
+            // resulting in smth like PetModelTypeModeL
+            enumSuffix = fullModelSuffix;
+        } else {
+            // without stringEnums, "Enum" was appended to model suffix, e.g. PetModel.TypeModelEnum
+            enumSuffix = fullModelSuffix + "Enum";
+        }
+
     }
 
     private void addNpmPackageGeneration(SemVer ngVersion) {
@@ -448,6 +467,7 @@ public class TypeScriptAngularClientCodegen extends AbstractTypeScriptClientCode
         // Add additional filename information for model imports in the services
         List<Map<String, Object>> imports = (List<Map<String, Object>>) operations.get("imports");
         for (Map<String, Object> im : imports) {
+            // This property is not used in the templates any more, subject for removal
             im.put("filename", im.get("import"));
             im.put("classname", im.get("classname"));
         }
@@ -601,11 +621,8 @@ public class TypeScriptAngularClientCodegen extends AbstractTypeScriptClientCode
 
     @Override
     public String toModelName(String name) {
-        String modelName = super.toModelName(name);
-        if (modelSuffix.length() == 0 || modelName.endsWith(modelSuffix)) {
-            return modelName;
-        }
-        return modelName + modelSuffix;
+        name = addSuffix(name, modelSuffix);
+        return super.toModelName(name);
     }
 
     public String removeModelPrefixSuffix(String name) {

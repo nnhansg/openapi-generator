@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -35,6 +35,8 @@ public class GoClientExperimentalCodegen extends GoClientCodegen {
         super();
         outputFolder = "generated-code/go-experimental";
         embeddedTemplateDir = templateDir = "go-experimental";
+
+        usesOptionals = false;
 
         generatorMetadata = GeneratorMetadata.newBuilder(generatorMetadata).stability(Stability.EXPERIMENTAL).build();
     }
@@ -69,7 +71,6 @@ public class GoClientExperimentalCodegen extends GoClientCodegen {
 
     @Override
     public Map<String, Object> postProcessModels(Map<String, Object> objs) {
-        objs = super.postProcessModels(objs);
 
         List<Map<String, Object>> models = (List<Map<String, Object>>) objs.get("models");
         for (Map<String, Object> m : models) {
@@ -81,16 +82,27 @@ public class GoClientExperimentalCodegen extends GoClientCodegen {
                 }
 
                 for (CodegenProperty param : model.vars) {
-                    if (!param.isNullable) {
+                    if (!param.isNullable || param.isMapContainer || param.isListContainer) {
                         continue;
                     }
-
-                    param.dataType = "Nullable" + Character.toUpperCase(param.dataType.charAt(0))
+                    if (param.isDateTime) {
+                        // Note this could have been done by adding the following line in processOpts(),
+                        // however, we only want to represent the DateTime object as NullableTime if
+                        // it's marked as nullable in the spec.
+                        //    typeMapping.put("DateTime", "NullableTime");
+                        param.dataType = "NullableTime";
+                    } else {
+                        param.dataType = "Nullable" + Character.toUpperCase(param.dataType.charAt(0))
                             + param.dataType.substring(1);
+                    }
                 }
             }
         }
 
+        // The superclass determines the list of required golang imports. The actual list of imports
+        // depends on which types are used, which is done in the code above. So super.postProcessModels
+        // must be invoked at the end of this method.
+        objs = super.postProcessModels(objs);
         return objs;
     }
 }
